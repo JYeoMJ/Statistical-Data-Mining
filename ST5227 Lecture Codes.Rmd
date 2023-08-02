@@ -1,0 +1,570 @@
+---
+title: "ST5227 Applied Data Mining: Lecture Notes Part 1"
+author: "Yeo Ming Jie, Jonathan"
+output: 
+  html_document:
+    toc: true
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Data')
+```
+
+
+## Ch 1. Linear Methods for Regression
+
+```{r Linear Regression Model}
+xy = read.table('data01A.dat')
+x1 = xy[,2]; x2 = xy[,3]; x3 = xy[,4]
+x4 = xy[,5]; x5 = xy[,6]; y = xy[,7]
+
+# fit linear model
+reg = lm(y~x1+x2+x3+x4+x5)
+summary(reg)
+
+# given new observations, compute predicted response
+newx = read.table('data01B.dat')
+predicted <- predict(reg, newdata=data.frame(x1=newx[,2], 
+						x2=newx[,3], x3=newx[,4],
+						x4=newx[,5], x5=newx[,6]), 
+						interval="confidence", level = 0.95)
+predicted # mean response, 95% CI
+```
+
+```{r Confidence Band}
+data = read.table('data01C.dat')
+x = data[,1]; y = data[,2]
+
+reg = lm(y~x)
+newx = seq(min(x), max(x), 0.1)
+
+# 95% (pointwise) confidence band over range of x
+pred <- predict(reg, newdata=data.frame(x=newx), interval="confidence", 
+                         level = 0.95)
+plot(x, y)
+abline(reg, lwd=2) # regression line 
+lines(newx, pred[,2], lty=3, col='red', lwd=2) # lower confidence band
+lines(newx, pred[,3], lty=3, col='red', lwd=2) # upper
+title(main='Estimated regression function and its 95% confidence band')
+```
+
+```{r Polygon Confidence Band Plot}
+plot(x, y)
+xx = c(newx, rev(newx))
+yy = c(pred[,2], rev(pred[,3]))
+polygon(xx, yy, col="gray")
+abline(reg, lwd=2)
+points(x, y)
+title(main='Estimated regression function and its 95% confidence band')
+```
+
+
+```{r }
+xy = read.table('data01B01.dat')
+xy = data.matrix(xy); y = xy[,11]
+RSS = matrix(0, 10, 1) 
+
+for (i in 1:10) {	# fit lm for 1 up to 10 predictors
+	X = xy[,1:i]
+	reg = lm(y~X)
+	RSS[i] = sum(reg$residuals^2)
+} # extract the residual sum of squares for each fitted model
+
+plot((RSS), xlab='number of predictors', ylab='RSS') # observe RSS always decreasing in number of predictors
+```
+
+***
+
+## Ch 2. Regularized Regression Models
+
+### (Part 1) Ridge Regression
+
+```{r Coefficient Paths Ridge}
+# Load Data
+rm(list=ls()) 
+mydata = read.csv('diabetes.csv')
+X = data.matrix(mydata[,1:10]); y = data.matrix(mydata[,11])
+X = scale(X); y = scale(y) # centralize and standardize
+p = 10; I = diag(p)
+
+# Least Square Estimator
+LS = solve(t(X) %*% X) %*% t(X) %*% y;
+
+# Generating Coefficient Paths for Diff Values of lambda (Shrinkage)
+lambda = matrix(0, 10000, 1)
+beta = matrix(0, 10000, 10)
+
+for (i in 1:10000) {     
+	lambdai = i^2/100 # value of lambda
+      bR = solve( t(X) %*% X + lambdai*I) %*% t(X) %*% y;  # Ridge Estimator
+      beta[i,] = bR
+	lambda[i] = lambdai
+}
+
+par(mfrow = c(1, 3))      
+matplot(log(lambda), beta, type='l')
+matplot(log(1/lambda), beta, type='l')
+t = apply(beta^2, 1, sum)
+matplot(t, beta, type='l', xlab='||beta||^2')
+```
+
+```{r Ridge Tuning Parameter Selection}
+# Cont. Diabetes dataset
+I = diag(10); cv = matrix(0, 100,1)
+lambda = matrix(0, 100,1) 
+n = length(y)
+
+for (i in 1:100) {     
+	lambdai = ((i-1)/100)*10 # value of lambda
+	cvi = 0
+	for (j in 1:n) {
+		bR = solve( t(X[-j,]) %*% X[-j,] + lambdai*I) %*% (t(X[-j,]) %*% y[-j]); # delete-1-out ridge estimator of beta
+		yje = X[j,] %*% bR  # fitted values
+		cvi = cvi +(yje-y[j])^2
+	}
+      lambda[i] = lambdai;
+	cv[i] = cvi/n	
+}
+
+plot(lambda, cv)
+
+# Optimal choice of lambda
+(bestlambda = lambda[which(cv==min(cv))])
+Ridge = solve( t(X) %*% X + bestlambda*I) %*% t(X) %*% y # Ridge Estimator of Beta (optimal lambda)
+```
+
+### (Part 2) LASSO (least absolute shrinkage and selection operator)
+
+```{r}
+library('glmnet') # for fitting GLM (note we can also do Ridge by setting alpha = 0)
+mydata = read.csv('diabetes.csv')
+X = data.matrix(mydata[,1:10])
+y = data.matrix(mydata[,11])
+
+X = scale(X); y = scale(y) # scale and center variables
+
+par(mfrow = c(1, 2))
+reg0 = glmnet(X, y, standardize=TRUE) # plot of coefficient paths
+plot(reg0) # notice some of the coeff forced to be zero!
+mycv = cv.glmnet(X, y, nfolds=10, standardize=TRUE) # 10-fold CV (default)
+plot(mycv)
+
+BestLambda = mycv$lambda.min # optimal lambda
+reg1 = glmnet(X, y, intercept=TRUE, lambda=BestLambda)
+reg1$beta # estimated LASSO coefficients
+```
+
+### (Part 3) Logistic Regression
+
+```{r Binary Response Logistic Regression}
+rm(list=ls()) 
+# Loading heart diseases data
+xy = read.table("DMheartdisease1.dat", sep=",")
+y = xy[,11]; x1 = xy[,2]; x2 = xy[,3]; x3 = xy[,4]
+x4 = xy[,5]; x5 = (xy[,6]=="Present")+0; x6 = xy[,7]
+x7 = xy[,8]; x8 = xy[,9]; x9 = xy[,10]
+ 
+# Fit logistic model for classifying the data
+mylogist = glm(y~x1+x2+x3+x4+x5+x6+x7+x8+x9,family='binomial');
+summary(mylogist)
+
+# Loading test dataset of 15 observations for prediction
+xynew = read.table("DMheartdisease2.dat", sep=",")
+newx1 = xynew[,2]; newx2 = xynew[,3]; newx3 = xynew[,4]
+newx4 = xynew[,5]; newx5 = (xynew[,6]=="Present")+0
+newx6 = xynew[,7]; newx7 = xynew[,8]; newx8 = xynew[,9]; newx9 = xynew[,10]
+
+# Predicted Probabilities
+predProb = predict(mylogist, newdata=data.frame(x1=newx1, x2=newx2,
+		x3=newx3, x4=newx4, x5=newx5, x6=newx6, x7=newx7,
+		x8=newx8, x9=newx9), type='response')
+
+(predClass = (predProb>0.5)+0) # Predicted Class: 1 if Heart Disease
+(misClass = mean(xynew[,11] != predClass)) # Misclassification Rate
+```
+
+
+```{r Multilevel logistic regression}
+library(glmnet)
+
+# Load Training data
+xy = read.table('waveformTRAIN.dat', sep='')
+y = xy[,2]; x = as.matrix(xy[,3:23])
+y = as.factor(y) # convert to factor variable (K=3 response types)
+
+# Fit multilevel logistic model
+myreg = glmnet(x, y, family='multinomial', lambda=0, alpha=0)
+
+# Test data
+xyTEST = read.table('waveformTEST.dat', sep='')
+yTEST = xyTEST[,2]; xTEST = as.matrix(xyTEST[,3:23]) # 500 data points
+
+# Predicted Probabilities and Classes, Misclassification Rate
+yProb = predict(myreg, newx=xTEST, type="response")
+yClass = predict(myreg, newx=xTEST, type="class")
+classificationError = mean(yClass != yTEST)
+```
+
+
+```{r}
+load('brain.rda')
+
+x = brain.x;
+y = brain.y;
+
+regLasso = glmnet(x, y, family='multinomial')
+par(mfrow=c(2,3))
+plot(regLasso)
+
+cv = cv.glmnet(x, y, family='multinomial', nfolds = 5)
+par(mfrow=c(1,1))
+plot(cv)
+
+
+lambda = cv$lambda.min
+
+regLasso1 = glmnet(x, y, family='multinomial', lambda=lambda)
+
+regLasso1$a0     # output the estiamtor
+regLasso1$beta      # output the estiamtor 
+
+
+predict(regLasso1, newx = brain.x, type = 'response')
+```
+
+***
+
+## Ch 3. Spline Smoothing and Semi-Parametric Models
+
+### Polynomial Splines
+
+Consider the self-defined function `pspline.R`
+
+```{r}
+rm(list=ls())
+source("pspline.R") # Load polynomial spline function 
+xy = read.table('DMmotorcycle.dat')
+x = xy[,1]; y = xy[,2]
+xe = seq(min(x), max(x), 0.1)
+
+# Compute estimated spline functions
+out5 = pspline(x, y, xnew=xe, knots=5)
+out10 = pspline(x, y, xnew=xe, knots=10)
+out15 = pspline(x, y, xnew=xe, knots=15)
+out20 = pspline(x, y, xnew=xe, knots=20)
+
+par(mfrow=c(2,2))
+plot(x,y, main="no. of knots = 5"); lines(xe, out5$m)
+plot(x,y, main="no. of knots = 10"); lines(xe, out10$m)
+plot(x,y, main="no. of knots = 15"); lines(xe, out15$m)
+plot(x,y, main="no. of knots = 20"); lines(xe, out20$m)
+```
+
+```{r}
+# Estimated spline function with 95% confidence interval
+out = pspline(x, y, xnew=xe, knots=10)
+plot(x, y)
+lines(xe, out$m, col="blue"); lines(xe, out$Ln, col="red"); lines(xe, out$Un, col="red")
+```
+
+Next, we use the `GAM` package instead (Generalized Additive Models):
+
+```{r Psline GAM}
+library('gam') # Fit Generalized Additive Model
+
+# KNOT SELECTION: Check AIC values
+out = gam(y~s(x, 11)); out$aic # Set # of knots = 11
+# Plot of estimated function with confidence band
+plot(out, se = TRUE, ylab='y-Ey')
+points(x, y-mean(y)) # mean centering on points
+
+# Compute prediction of y at following supplied values
+xe = c(10, 20, 30, 50)
+pred = predict(out, newdata=data.frame(x=xe))
+```
+
+### Partially Linear Additive Model
+
+Consider the following additive model:
+
+$$
+Y = \beta_0 + \beta_1 x_1 + \dotsc + \beta_qx_q + g_{q+1}(x_{q+1}) + \dotsc + g_p(x_p) + \epsilon
+$$
+
+comprises of a linear component up to predictor $q$, nonlinear component (sum of individual contributions as a function of each variable).
+
+Consider the following simulation example. Estimated model is
+
+$$
+\hat{Y}=2.8625+0.4955 \mathbf{x}_1-0.0223 \mathbf{x}_2+\hat{g}_3\left(\mathbf{x}_3\right)+\hat{g}_4\left(\mathbf{x}_4\right)
+$$
+
+Plot of estimated nonlinear components given below:
+
+```{r Simulation Example}
+library('gam')
+library('mgcv')
+
+# Loading dataset (100 samples)
+xy = read.table("data03B01.dat")
+x1 = xy[,1]; x2 = xy[,2]; x3 = xy[,3]
+x4 = xy[,4]; y = xy[,5]
+
+# Fit Partial Linear Additive Model
+out = gam(y~x1+x2+s(x3)+s(x4))
+
+out$coefficients  # estimated coefficients
+anova(out)    # model testing
+
+# Estimated Nonlinear Components
+par(mfrow = c(1, 2))
+plot(out, se=TRUE)
+```
+
+Generate predictions over new dataset:
+
+```{r}
+# Predictions over new dataset
+xyNEW = read.table("data03B01p.dat")
+predict.gam(out, newdata = list(x1 = xyNEW[,1], x2 = xyNEW[,2], x3 = xyNEW[,3],
+                            x4 = xyNEW[,4]))
+```
+
+Model Selection using CV or AIC (Testing 6 Different Models):
+
+```{r}
+library('mgcv')
+n = length(y)
+
+CV0 = 0
+for (i in 1:n) {
+  out = gam(y~ s(x1) + s(x2) + s(x3) + s(x4), subset=-i)
+  yipred = predict(out, list(x1= x1[i], x2= x2[i], x3= x3[i], x4= x4[i]))
+  CV0 = CV0 + (y[i]-yipred)^2
+}
+
+CV1 = 0
+for (i in 1:n) {
+  out = gam(y~ x1 + s(x2) + s(x3) + s(x4), subset=-i)
+  yipred = predict(out, list(x1= x1[i], x2= x2[i], x3= x3[i], x4= x4[i]))
+  CV1 = CV1 + (y[i]-yipred)^2
+}
+
+CV2 = 0
+for (i in 1:n) {
+  out = gam(y~ s(x1) + x2 + s(x3) + s(x4), subset=-i)
+  yipred = predict(out, list(x1= x1[i], x2= x2[i], x3= x3[i], x4= x4[i]))
+  CV2 = CV2 + (y[i]-yipred)^2
+}
+
+CV3 = 0
+for (i in 1:n) {
+  out = gam(y~ s(x1) + s(x2) + x3 + s(x4), subset=-i)
+  yipred = predict(out, list(x1= x1[i], x2= x2[i], x3= x3[i], x4= x4[i]))
+  CV3 = CV3 + (y[i]-yipred)^2
+}
+
+CV4 = 0
+for (i in 1:n) {
+  out = gam(y~ s(x1) + s(x2) + s(x3) + x4, subset=-i)
+  yipred = predict(out, list(x1= x1[i], x2= x2[i], x3= x3[i], x4= x4[i]))
+  CV4 = CV4 + (y[i]-yipred)^2
+}
+
+CV5 = 0
+for (i in 1:n) {
+  out = gam(y~ x1 + x2 + s(x3) + s(x4), subset=-i)
+  yipred = predict(out, list(x1= x1[i], x2= x2[i], x3= x3[i], x4= x4[i]))
+  CV5 = CV5 + (y[i]-yipred)^2
+}
+
+# Cross validation error:
+c(CV0, CV1, CV2, CV3, CV4, CV5)/n
+
+# AIC Criterion:
+out0 = gam(y~ s(x1) + s(x2) + s(x3) + s(x4))
+out1 = gam(y~ x1 + s(x2) + s(x3) + s(x4))
+out2 = gam(y~ s(x1) + x2 + s(x3) + s(x4))
+out3 = gam(y~ s(x1) + s(x2) + x3 + s(x4))
+out4 = gam(y~ s(x1) + s(x2) + s(x3) + x4)
+out5 = gam(y~ x1 + x2 + s(x3) + s(x4))
+
+AIC(out0, out1, out2, out3, out4, out5)
+```
+
+### Group Lasso for Additive Modelling with Large p
+
+When $p$ is large, apply LASSO for estimation and variable selection.
+
+```{r}
+library(SAM) # Sparse Additive Modelling
+library(gam)
+
+xy = read.table("data03Bx.dat"); xy = data.matrix(xy)
+x = xy[,1:100]; y = xy[,101]
+out0 = samQL(x,y)
+
+plot(out0)
+#out0$func_norm
+```
+
+```{r}
+x1=x[,1]; x5=x[,5]; x7=x[,7]
+out1 = gam(y~s(x1) + s(x5) + s(x7))
+
+par(mfrow = c(1, 3))
+plot(out1)
+```
+
+### Multivariate Adaptive Regression Splines (MARS)
+
+```{r}
+# Loading datset
+xy = read.table('data03C01.dat')
+x1 = xy[,1]; x2 = xy[,2]; y = xy[,3];
+n = length(y); x = matrix(c(x1, x2), n, 2)
+
+# Fit MARS model to estimate function
+library(mda)
+out = mars(x, y, degree=2)
+# where degree indicate the degree of interaction, 
+# for example, degree=1 implies additive model
+
+x1 = seq(min(x[,1]), max(x[,1]), 0.1);
+x1 = matrix(x1, length(x1), 1);
+
+x2 = seq(min(x[,2]), max(x[,2]), 0.1);
+x2 = matrix(x2, length(x2), 1);
+
+x11 = matrix(1, length(x2),1) %x% x1;
+x22 = x2 %x% matrix(1,length(x1),1);
+xnew = matrix(c(x11, x22), length(x1)*length(x2), 2)
+
+predict = predict(out, xnew)
+
+# Plotting fitted curve for MARS (observe interaction)
+y = matrix(predict, length(x1), length(x2))
+persp(x1, x2, y, theta=40, phi=20, col = "lightblue")
+```
+
+```{r}
+library(mda)
+# Training Data
+xy = read.table('data03C02.dat')
+x = data.matrix(xy[,2:9]); y = xy[,10]
+outmars = mars(x, y, degree = 2)
+
+# Prediction Errors over Validation
+xy = read.table('data03C03.dat')
+xnew = data.matrix(xy[,2:9])
+predicted = predict(outmars, xnew)
+mars_error  = mean((xy[,10]-predicted)^2)
+
+mars_error
+```
+
+***
+
+## Ch 4. Local Averaging Methods
+
+```{r Nadaraya Watson Estimator Manual}
+rm(list=ls())
+# Loading Motorcycle data
+xy = read.table("DMmotorcycle.dat", sep="")
+xy = data.matrix(xy)
+x = xy[,1]; y = xy[,2]
+
+plot(x, y, main = "NW Regression (h=0.5)")
+
+xe = seq(min(x), max(x), length=100)
+m = xe; h = 0.5
+
+# Manual computation
+for (i in 1:100) { # using Gaussian kernel
+	k = exp(- (x-xe[i])^2/(2*h*h) )/sqrt(2*3.14)/h
+	m[i] = k %*% y / sum(k)
+}
+
+lines(xe, m, col="red")
+```
+
+```{r Using sm package}
+par(mfrow=c(1,2))
+library(sm) # Smoothing Mtds for Nonparametric Regression
+sm.regression(x, y, h=0.5, display=TRUE)
+title("h=0.5")
+sm.regression(x, y, h=hcv(x,y), display=TRUE) # optimal curve by cross validation
+title("h selected by CV")
+```
+
+### Single-Index Model (SIM)
+
+```{r Estimation of SIM}
+# Initialize simulation values
+n = 50; p = 5
+x = matrix(rnorm(n*p, mean=0, sd=1),n,p)
+y = (x[,1] + 2*x[,3]-2*x[,5])^2 + rnorm(n,mean=0, sd=1)
+
+# Projection Pursuit Regression (nterms = 1 for Single Index Model)
+out = ppr(x, y, nterms=1)
+
+par(mfrow=c(1,2))
+out$alpha    ## estimated directions
+plot(out)
+
+xalpha = x %*% out$alpha
+Mygam = gam(y~s(xalpha))
+plot(Mygam, se=1)
+```
+
+### Projection Pursuit Regression (PPR)
+
+```{r}
+xy = read.table("DMsalary.dat", row.names = NULL)
+
+x = data.matrix(xy[,1:16])
+
+# standardize x values
+for (i in 1:16) {
+  x[,i] = x[,i]/sd(x[,i]);
+}
+y = data.matrix(xy[,17])
+
+# Running the Single-Index Model
+out1 <- ppr( y~x, nterm=1, optlevel = 3)
+out1$alpha
+out2 <- ppr( out1$residuals~x, nterm=1, optlevel = 3)
+out2$alpha
+out3 <- ppr( out2$residuals~x, nterm=1, optlevel = 3)
+out3$alpha
+
+xalpha1 = x %*% out1$alpha
+xalpha2 = x %*% out2$alpha
+xalpha3 = x %*% out3$alpha
+
+
+par(mfrow=c(1,3))
+plot(xalpha1, y)
+order1 = order(xalpha1)	
+lines(xalpha1[order1], out1$fitted.value[order1], col='red')
+
+plot(xalpha2, out1$residuals)	
+order2 = order(xalpha2)	
+lines(xalpha2[order2], out2$fitted.value[order2], col='red')
+
+plot(xalpha3, out2$residuals)	
+order3 = order(xalpha3)	
+lines(xalpha3[order3], out3$fitted.value[order3], col='red')
+
+# Using the `sm` package for nonparametric smoothing
+
+library(sm)
+sm.regression(xalpha1, y, display=T, se = T)
+sm.regression(xalpha2, out1$residuals, display=T, se = T)
+sm.regression(xalpha3, out2$residuals, display=T, se = T)
+```
+
+
