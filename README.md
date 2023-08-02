@@ -13,3 +13,5 @@ This module focuses on the most recent but well accepted methods, especially tho
 * Wk 8 - kNN Regression and Classification
 * Wk 9 - Unsupervised Learning (PCA, K-Means & Hierarchical Clustering)
 * Wk 10 - Support Vector Machines (SVM)
+
+All works uploaded here reflect my own consolidated notes, tutorial works, and annotations.
