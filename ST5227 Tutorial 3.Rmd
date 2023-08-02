@@ -1,0 +1,181 @@
+---
+title: "ST5227 Tutorial 3"
+author: "Yeo Ming Jie, Jonathan"
+date: 
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Tutorials/Data')
+```
+
+## Question 1: Cubic Spline Regression
+
+Suppose we regress $y$ on $x$ with the following nonparametric model
+
+$$
+y = m(x) + \epsilon
+$$
+
+To estimate $m(x)$, we approximate it by spline functions
+
+$$
+m(x) = \beta_0 + \beta_1x + \beta_2x^2 + \beta_3x^3 + \beta_4(x-0.3)_+^3 + \beta_5(x-0.5)_+^3 + \beta_6(x-0.7)_+^3
+$$
+
+```{r}
+# Loading data
+xy <- read.table('dataT04a.dat')
+y = xy[,1]; x = xy[,2]
+x1 = x; x2 = x^2; x3 = x^3
+x4 = (x-.3)^3*(x>0.3) # initialize positive parts in spline
+x5 = (x-.5)^3*(x>0.5)
+x6 = (x-.7)^3*(x>0.7)
+
+fm <- lm(y ~ x1+x2+x3+x4+x5+x6)
+summary(fm)
+```
+
+Estimated regression function is given by
+
+$$
+\hat m(x) = 1.018359 + 1.070661x -1.787149x^2 + 1.761094x^3 -7.014172(x-0.3)_+^3  + 4.393831(x-0.5)_+^3  + 42.466937 (x-0.7)_+^3
+$$
+
+The t-test indicates that `x4` aand `x5` are not statistically significant (with p-value $> 0.05$). Cubic terms $x, x^2$ and $x^3$ are retained by Hierarchy principle. We refit the model, and the simplified model is given by the following:
+
+$$
+\hat m(x) = 1.037 + 0.565x + 1.042x^2 -2.508x^3 + 45.067(x-0.7)_+^3
+$$
+
+```{r}
+fm1 <- lm(y ~ x1+x2+x3+x6)
+summary(fm1)
+```
+
+From the F-statistic (153.9) with corresponding p-value $< 2.2e-16$, we reject the null and conclude that the model is significant at level $0.05$.
+
+Lastly, we compute the predictions (expected value) and corresponding $95\%$ confidence intervals for the following sequence of $x$ values:
+
+```{r}
+xnew = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1)
+x1new = xnew; x2new = xnew^2; x3new = xnew^3
+x6new = (xnew-.7)^3*(xnew>0.7)
+predict(fm1, list(x1 = x1new, x2 = x2new, x3 = x3new, x6 = x6new), interval='confidence')
+```
+
+### Extension:
+
+Drawing the $95\%$ confidence band for $g'(x)$
+
+```{r}
+# Regression function plot 
+xnew = seq(0, 1, 0.01)
+x1new = xnew; x2new = xnew^2; x3new = xnew^3
+x4new = (xnew-0.3)^3*(xnew>0.3)
+x5new = (xnew-0.5)^3*(xnew>0.5)
+x6new = (xnew-0.7)^3*(xnew>0.7)
+
+pred =  predict(fm, list(x1 = x1new, x2 = x2new, x3 = x3new, 
+                           x4 = x4new, x5 = x5new, x6 = x6new), interval='confidence')
+
+par(mfrow=c(1,2))
+plot(xnew, pred[,1], type='l', ylab='estimated function')
+lines(xnew, pred[,2], col='red')
+lines(xnew, pred[,3], col='red')
+
+# Derivative Plot
+xnew = seq(0, 1, 0.01)
+x1new = xnew*0+1; x2new = 2*xnew^1; x3new = 3*xnew^2
+x4new = 3*(xnew-0.3)^2*(xnew>0.3)
+x5new = 3*(xnew-0.5)^2*(xnew>0.5)
+x6new = 3*(xnew-0.7)^2*(xnew>0.7)
+
+pred =  predict(fm, list(x1 = x1new, x2 = x2new, x3 = x3new, 
+                           x4 = x4new, x5 = x5new, x6 = x6new), interval='confidence')
+
+plot(xnew, pred[,1], type='l', ylab='estiamted derivative')
+lines(xnew, pred[,2], col='red')
+lines(xnew, pred[,3], col='red')
+```
+
+
+***
+
+## Question 2: Cubic Spline Regression - Dangers of Extrapolation
+
+We set knots at every $20$ values of $x$. Note however that the knots are not equally spaced.
+
+```{r}
+xy <- read.table('dataT04b.dat')
+y = xy[,1]; x = xy[,2]
+
+# Insert knots every 20 values of x
+S = sort(x)
+(K = S[c(20, 40, 60, 80)]) # knot values
+
+x1 = x; x2 = x^2; x3 = x^3
+x4 = (x-K[1])^3*(x>K[1])
+x5 = (x-K[2])^3*(x>K[2])
+x6 = (x-K[3])^3*(x>K[3])
+x7 = (x-K[4])^3*(x>K[4])
+
+fm = lm(y~x1+x2+x3+x4+x5+x6+x7)
+summary(fm)
+```
+
+Generating plot of estimated function:
+
+```{r}
+xnew = 1:200
+x1new = xnew; x2new = xnew^2; x3new = xnew^3
+x4new = (xnew-K[1])^3*(xnew>K[1])
+x5new = (xnew-K[2])^3*(xnew>K[2])
+x6new = (xnew-K[3])^3*(xnew>K[3])
+x7new = (xnew-K[4])^3*(xnew>K[4])
+
+pred = predict(fm, list(x1=x1new, x2=x2new, x3=x3new, 
+                          x4=x4new, x5=x5new, x6=x6new, x7=x7new))
+
+par(mfrow = c(1,2)) 
+plot(xnew[1:30], pred[1:30])
+plot(xnew, pred)
+```
+
+Observe that the fitting outside the observed region is not reliable.
+
+***
+
+## Question 4: Partially Linear Additive Model
+
+Observe that $\beta_1$ is significant by the t-test, with $t = 63.054$ and corresponding p-value $< 2e-16$ (significant for any sig level $\alpha$).
+
+```{r}
+# Loading dataset
+xy = read.table('dataT04C.dat')
+y = xy[,1]; x1 = xy[,2]; x2 = xy[,3] # first feature z = x1, second feature x = x2
+x2a = x2; x2b = x2^2; x2c = x2^3;
+x2d = (x2-0.3)^3*(x2>0.3) # fitting model at two knots
+x2e = (x2-0.6)^3*(x2>0.6) # (0.3, 0.6)
+
+out0 = lm(y~x1+x2a+x2b+x2c+x2d+x2e)
+summary(out0)
+```
+
+Next, testing significance of the non-linear component:
+
+```{r}
+out1 = lm(y~x1)
+# Testing H0: g(.) = 0
+anova(out1, out0)
+```
+From the significant F-test, we reject the null and conclude that $g(x)$ is significant at level $\alpha = 0.05$.
+
+
+
+
+
+
+

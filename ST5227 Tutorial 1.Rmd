@@ -1,0 +1,153 @@
+---
+title: "ST5227 Tutorial 1"
+author: "Yeo Ming Jie, Jonathan"
+date:
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Tutorials/Data')
+```
+
+## Question 2: Cubic Polynomial Regression
+
+The estimated model is $$
+\hat{E Y}=-0.1978-7.10 \mathbf{x}+2.01 \mathbf{x}^2+2.76 \mathbf{x}^3
+$$
+
+with $\hat{\sigma}=2.00$ and
+
+$$
+\left(\mathbb{X}^{\top} \mathbb{X}\right)^{-1}=\left(\begin{array}{cccc}
+0.054737922 & -0.0031336788 & -2.265002 e-02 & 8.517339 e-04 \\
+-0.003133679 & 0.0894544592 & -1.118712 e-04 & -3.161203 e-02 \\
+-0.022650023 & -0.0001118712 & 1.483089 e-02 & 6.537984 e-05 \\
+0.000851734 & -0.0316120296 & 6.537984 e-05 & 1.309575 e-02
+\end{array}\right)
+$$ For any $\mathbf{x}$, let $X=\left(1, \mathbf{x}, \mathbf{x}^2, \mathbf{x}^3\right)^{\top}$, then
+
+$$
+[\underbrace{\widehat{E Y}-1.96 \hat{\sigma} \sqrt{X^{\top}\left(\mathbb{X}^{\top} \mathbb{X}\right)^{-1} X}}_{\text {lower boundary }}, \quad \underbrace{\widehat{E Y}+1.96 \hat{\sigma} \sqrt{X^{\top}\left(\mathbb{X}^{\top} \mathbb{X}\right)^{-1} X}}_{\text {upper boundary }}]
+$$
+
+```{r}
+# Loading data
+xy = read.table('data01T01.dat')
+x = xy[,1]; y = xy[,2]
+ones = rep(1, length=length(x))
+
+# Fit linear model
+x1 = x; x2 = x^2; x3 = x^3
+reg = lm(y~x1+x2+x3)
+(result = summary(reg))
+
+# Statistics
+sigma_hat = result$sigma
+X = matrix(nrow = length(x1), ncol = 4, c(ones, x1, x2, x3))
+solve(t(X) %*% X)
+
+# 95% (pointwise) Confidence Band over range of x
+xnew = seq(min(x), max(x), 0.1)  
+xnew2 = xnew^2; xnew3 = xnew^3
+
+# PREDICTION INTERVAL
+pred = predict(reg, new = data.frame(x1 = xnew, x2 = xnew2, x3 = xnew3), interval='confidence', level = 0.95)
+# Note: Input format for prediction must be the same as that used during model fit
+
+plot(x,y) # Plotting Confidence Bands
+lines(xnew, pred[,1]); lines(xnew, pred[,2], col='red'); lines(xnew, pred[,3], col='red')
+```
+
+------------------------------------------------------------------------
+
+## Question 5: Ridge Regression
+
+```{r Ridge Regression}
+# Load data, extract features and response
+xy = read.csv('mydataT02a.csv', header = FALSE)
+xy = data.matrix(xy)
+x = xy[,1:200]; y = xy[,201]
+
+I = diag(200); n = length(y)
+Ymean = mean(y); Xmean = apply(x, 2, mean)
+
+# Centering observations
+x = scale(x, center = TRUE, scale = FALSE)
+y = scale(y, center = TRUE, scale = FALSE)
+
+# Initialize Lambda and Coeff Matrix
+Lambda = c(0.1, 1, 10, 100, 1000)
+Beta = matrix(0, 5, 200) # rows for each value of lambda
+
+# Computing Ridge estimates for different lambda values
+for (i in 1:5) {
+  lambda = Lambda[i]
+  beta = solve(t(x) %*% x + lambda*I) %*% t(x) %*% y
+  Beta[i,] = beta # save results to row
+}
+
+# Plotting Coefficient Paths
+matplot(log(Lambda),Beta, type='l')
+```
+
+Comments: 200 features, plotting 200 coefficient paths decreasing towards zero at increasing values of penalty (shrinkage parameter) lambda.
+
+```{r LOOCV}
+Lambda = ((1:50)/100)^4/200
+CV = matrix(0, 50,1)
+
+# LEAVE-ONE-OUT CROSS VALIDATION
+for (i in 1:50) {
+	lambda = Lambda[i]; cv = 0
+	for (j in 1:n) { # leave out j-th observation at each time
+		beta = solve(t(x[-j,]) %*% x[-j,] + lambda*I) %*% t(x[-j,]) %*% y[-j];
+		cv = cv + (y[j]- x[j,] %*%beta)^2
+	}
+	CV[i] = cv/n # cross-validation error
+}
+
+plot(log(Lambda[3:50]), CV[3:50])
+CVmin = min(CV)
+
+# OPTIMAL TUNING PARAMETER
+cv_index = which(CV==CVmin) # index for minimized CV
+lambda.min = Lambda[cv_index]
+```
+
+```{r Prediction, warning = FALSE}
+# Ridge Estimate with optimal lambda
+beta = solve(t(x) %*% x + lambda.min*I) %*% t(x) %*% y;
+
+# Loading test dataset, centering data
+newxy = read.csv('mydataT02b.csv')
+newxy = data.matrix(newxy)
+xnew = newxy[,1:200]; ynew = newxy[,201]
+n1 = length(ynew)
+xnew = xnew - matrix(rep(Xmean, each=n), n1, 200)
+yPred = xnew %*% beta + Ymean
+
+# Mean Square Error of Prediction
+(MSE = mean((ynew-yPred)^2))
+```
+
+### FOR CHECKING
+
+```{r Using glmnet package for Ridge}
+library('glmnet')
+par(mfrow = c(1, 2)) # set alpha = 0 for Ridge
+Lambda = c(0.1, 1, 10, 100, 1000)
+
+# RIDGE REGRESSION
+fit_ridge = glmnet(x, y, alpha = 0, lambda = Lambda, standardize=TRUE)
+ridge_est = fit_ridge$beta # Ridge Estimators
+plot(fit_ridge, xvar = "lambda")
+
+# CROSS VALIDATION
+fit_ridge_cv = cv.glmnet(x, y, alpha = 0, nfold = n, grouped = FALSE) # LOOCV (nfold = n)
+plot(fit_ridge_cv)
+
+# OPTIMAL TUNING PARAMETER
+lambda_opt = fit_ridge_cv$lambda.min # 11.98331 (diff optimal?)
+```

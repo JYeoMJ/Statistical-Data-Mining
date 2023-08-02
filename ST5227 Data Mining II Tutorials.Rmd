@@ -1,0 +1,211 @@
+---
+title: "ST5227 Tutorials Part II Consolidated"
+author: "Yeo Ming Jie, Jonathan"
+date: "2023-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Data')
+```
+
+Load required packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(ISLR2)
+library(ggplot2)
+library(tree)
+library(randomForest)
+library(gbm)
+library(kknn)
+```
+
+***
+## Tutorial 1: Trees
+
+### Question 6: Carseats
+
+```{r}
+# Load Carseats dataset
+data(Carseats); str(Carseats)
+
+# Training-Test split
+set.seed(5227)
+train=sample(c(1:400),200,replace=FALSE)
+car.train <- Carseats[train,]
+car.test <- Carseats[-train,]
+
+# Fit CART on training set
+car.tree <- tree(Sales~., data = car.train)
+plot(car.tree); text(car.tree, pretty = 0)
+
+# Generate predictions over test
+car.predict=predict(car.tree,car.test)
+mse = mean((car.predict-car.test$Sales)^2)
+mse
+```
+```{r Prune Tree}
+set.seed(5227)
+mse.vec=rep(0,times=17)
+for(i in 2:17){
+	car.prune=prune.tree(car.tree,best=i)
+	car.predict=predict(car.prune,car.test)
+	mse.vec[i]=mean((car.predict-car.test$Sales)^2)
+	}
+plot(c(2:17),mse.vec[2:17],type="b",xlab="No. of terminal nodes",ylab="MSE")
+```
+
+### Bagging (Bootstrap Aggregation)
+
+```{r Bagging Carseats}
+set.seed(5227)
+car.bagging = randomForest(Sales~., data = car.train, 
+                           mtry = 10, importance = TRUE) # mtry = all predictors
+car.bagging
+yhat.bag = predict(car.bagging, car.test)
+MSE.bag = mean((yhat.bag - car.test$Sales)^2)
+MSE.bag
+
+# Variable Importance Measure
+importance(car.bagging) # ShelveLoc followed by Price most important variables
+varImpPlot(car.bagging)
+```
+
+### Random Forest
+
+```{r Random Forest Carseats}
+set.seed(5227)
+car.forest =  randomForest(Sales~., data = car.train, 
+                           importance = TRUE) # do not specify mtry
+
+car.forest
+yhat.forest = predict(car.forest, car.test)
+MSE.forest = mean((yhat.forest - car.test$Sales)^2)
+MSE.forest # Note MSE higher than bagging results
+
+# Variable Importance Measure
+importance(car.forest)
+varImpPlot(car.forest)
+```
+
+### Boosting
+
+```{r Boosting Carseats}
+set.seed(5227)
+car.gbm = gbm(Sales~., data = car.train, 
+              interaction.depth = 2)
+
+# Computing MSE over test
+car.predict=predict(car.gbm, car.test)
+mse.gbm = mean((car.predict - car.test$Sales)^2)
+mse.gbm 
+```
+
+Note that boosting yields significant improvement in test MSE over CART, Bagging and RandomForest.
+
+***
+
+## Tutorial 2: k-Nearest Neighbours (kNN)
+
+### Question 3: Iris Classification
+
+```{r 3nn iris}
+# Load iris dataset
+data(iris); str(iris)
+
+# Training-Test split
+set.seed(5227)
+index <- sample(c(1:150),30, replace = FALSE)
+iris.test <- iris[index,]
+iris.train <- iris[-index,]
+
+# Applying 3-NN
+iris.3nn = kknn(Species~., iris.train, iris.test,
+                scale = TRUE, distance = 2,
+                k = 3, kernel = "rectangular")
+
+# Assessing performance with misclassification rate
+misclass_rate <- 1 - mean(iris.test$Species == as.factor(iris.3nn$fitted.values))
+misclass_rate
+
+# Create a confusion matrix
+table(Actual = iris.test$Species, Predicted = iris.3nn$fitted.values)
+
+# Create a plot with actual and predicted classes colored differently
+ggplot(data = iris.test, aes(x = Petal.Length, y = Petal.Width, color = Species, shape = iris.3nn$fitted.values)) +
+  geom_point(size = 3) +
+  labs(x = "Petal Length", y = "Petal Width", color = "Actual Species", shape = "Predicted Species")
+```
+
+```{r CART iris}
+iris.tree <- tree(Species~., data = iris.train)
+summary(iris.tree) # check classification tree
+iris.predict <- predict(iris.tree,iris.test)
+
+head(iris.test$Species)
+head(iris.predict)
+
+# Convert factor response to numeric label
+iris.numeric=as.numeric(iris.test$Species)
+iris.columnmax=apply(iris.predict,1,which.max)
+
+# misclassification rate
+1-mean(iris.columnmax==iris.numeric)
+```
+
+***
+
+## Tutorial 3: Unsupervised Learning
+
+### Question 5: Dimensionality Reduction (w kNN and K-Means)
+
+```{r}
+# Load iris dataset
+data(iris); str(iris)
+
+# Add noise features to dataset
+set.seed(1)
+noise = matrix(nrow = 150, ncol = 96, data = rnorm(150*96))
+iris_noise <- cbind(iris, noise)
+
+# Training-Test split
+set.seed(5227)
+index <- sample(c(1:150),30, replace = FALSE)
+iris.test <- iris_noise[index,]
+iris.train <- iris_noise[-index,]
+
+# Applying 3-NN
+iris.3nn = kknn(Species~., iris.train, iris.test,
+                scale = TRUE, distance = 2,
+                k = 3, kernel = "rectangular")
+
+# Check misclassification rate
+# misclass_rate of 46.7%
+(misclass_rate <- 1 - mean(iris.test$Species == as.factor(iris.3nn$fitted.values)))
+
+
+# Performing PCA (denoise the dataset)
+iris.pca=prcomp(iris_noise[,-5],scale=TRUE)
+iris.imp=summary(iris.pca)$importance
+
+# Examining SCREE plot to identify no. of PCs (to the left of elbow)
+plot(iris.imp[2,],xlab="PCm",ylab="PVE",main="scree plot",type="b")
+
+# Using PC1 scores (Apply 3NN)
+iris_noise$pc1=iris.pca$x[,1]
+iris.newtrain=iris_noise[index,]
+iris.newtest=iris_noise[-index,]
+iris.newkknn=kknn(Species~pc1,iris.newtrain,iris.newtest,scale=TRUE,distance=2,k=3)
+1-mean(iris.newtest$Species==iris.newkknn$fit)
+
+# Using K-means clustering
+set.seed(2)
+iris.kmeans=kmeans(iris_noise[,-5],centers=3,nstart=20)
+table(iris_noise$Species,iris.kmeans$cluster)
+
+irispc1.kmeans=kmeans(iris_noise$pc1,centers=3,nstart=20)
+table(iris_noise$Species,irispc1.kmeans$cluster)
+```
+

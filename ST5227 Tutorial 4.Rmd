@@ -1,0 +1,86 @@
+---
+title: "ST5227 Tutorial 4"
+author: "Yeo Ming Jie, Jonathan"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Tutorials/Data')
+```
+
+## Question 1: Logistic Additive Model
+
+```{r Logistic Additive}
+# Loading data and `mgcv` library
+library('mgcv')
+xy = read.table('dataT05a.dat')
+x1 = xy[,1]; x2 = xy[,2]; x3 = xy[,3]
+y = xy[,4] # BINARY RESPONSE
+
+# Fit logistic additive model (set family = binomial)
+model0 = gam(y~s(x1)+s(x2)+s(x3), family = binomial)
+par(mfrow=c(1,3))
+plot(model0) # observe that x1 can be estimated linearly
+```
+
+```{r Revised Logistic Additive}
+model1 = gam(y~x1+s(x2)+s(x3), family = binomial) # x1 linear component
+par(mfrow=c(1,2))
+plot(model1) # estimated functions for nonlinear component
+summary(model1)
+```
+
+## Question 4: Multivariate Adaptive Regression (MARS)
+
+```{r}
+# Loading data
+xy = read.table('dataT05c.dat')
+x1 = xy[,1]; x2 = xy[,2]; x3 = xy[,3]
+y = xy[,4]
+
+library(mgcv) # package for General Additive Model
+
+add0 = gam(y~s(x1)+s(x2)+s(x3))
+add1 = gam(y~x1+s(x2)+s(x3))
+add2 = gam(y~x1+x2+s(x3))
+add3 = gam(y~x1+s(x2)+x3)
+add4 = gam(y~x1+x2+x3)
+# Model overview with reported GCV score (best model where GCV score minimized)
+add0; add1; add2; add3; add4
+
+library(mda) # package for MARS
+x = matrix(c(x1, x2, x3), 200, 3)
+mars1 = mars(x,y, degree = 1)
+mars2 = mars(x,y, degree = 2)
+mars3 = mars(x,y, degree = 3)
+mars1$gcv
+mars2$gcv
+mars3$gcv # GCV score minimized for degree 3 interactions model
+```
+
+```{r, eval = FALSE}
+# PREDICTION (using best fitted models for each method)
+xynew = read.table('dataT05d.dat')
+ynew = xynew[,4]
+
+addpred = predict(add3, list(x1=xynew[,1],x2=xynew[,2],x3=xynew[,3]), type='response') 
+cartpred = predict(cart, list(x1=xynew[,1],x2=xynew[,2],x3=xynew[,3]))
+marspred = predict(mars2, xynew[,1:3])
+
+# Computing mean square error
+erradd = mean((addpred-ynew)^2)
+errcart = mean((cartpred-ynew)^2)
+errmars = mean((marspred-ynew)^2)
+
+# Reporting errors
+erradd
+errcart
+errmars
+```
+
+
+
+
+

@@ -1,0 +1,137 @@
+---
+title: "ST5227 Tutorial 2"
+author: "Yeo Ming Jie, Jonathan"
+date: 
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Tutorials/Data')
+```
+
+## Question 2: LASSO vs RIDGE Regression
+
+Observe from solution path that Lasso performs both shrinkage and variable selection (where some coefficients shrink to exactly zero).
+
+```{r RidgeXLasso}
+library(glmnet)
+xy = read.csv("dataT03a1.csv")
+x = data.matrix(xy[,1:100]); y = xy[,101]
+
+# Solution path for LASSO and RIDGE
+fit_lasso = glmnet(x, y)
+fit_ridge = glmnet(x, y, alpha = 0)
+
+# Note on axis (L1-norm): 
+# Intuitively, amount that coefficients have been shrunken towards zero
+par(mfrow=c(1,2))
+plot(fit_lasso, main = "LASSO")
+plot(fit_ridge, main = "RIDGE")
+# L1-norm inversely related to lambda
+
+# 5-FOLD CROSS-VALIDATION
+lasso_cv = cv.glmnet(x, y, nfolds = 5)
+ridge_cv = cv.glmnet(x, y, alpha = 0, nfolds = 5, lambda=seq(0.01, 5, 0.01))
+par(mfrow=c(1,2))
+plot(lasso_cv, main = "LASSO")
+plot(ridge_cv, main = "RIDGE")
+
+(lasso_opt = lasso_cv$lambda.min)
+(ridge_opt = ridge_cv$lambda.min)
+
+# Fitted coefficients, using minimum lambda
+lasso_est = coef(lasso_cv, s = "lambda.min")
+# Note variable selection at play, with many coeff set to zero!
+
+# Comparing prediction error
+```
+
+## Question 3: Multilevel Logistic Model
+
+```{r Multilevel Logistic}
+rm(list=ls())
+xy = read.csv("dataT03b1.csv", header = TRUE)
+y = xy[,251]; y = as.factor(y) # response as factor variable
+x = as.matrix(xy[,1:250])
+
+# Fit multilevel logistic model (with Ridge and Lasso)
+multi_lasso = glmnet(x, y, family='multinomial')
+multi_ridge = glmnet(x, y, family='multinomial', alpha=0)
+par(mfrow=c(2,3)) # solution paths for LASSO and RIDGE
+plot(multi_lasso, main = "LASSO")
+plot(multi_ridge, main = "RIDGE")
+
+# 5-Fold Cross-Validation
+set.seed(5227)
+cv_lasso = cv.glmnet(x, y, family='multinomial', nfolds = 5)
+cv_ridge = cv.glmnet(x, y, family='multinomial', alpha=0, nfolds = 5)
+
+(lambda_lasso = cv_lasso$lambda.min)
+(lambda_ridge = cv_ridge$lambda.min)
+
+# LASSO at Optimal Lambda
+multi_lasso_est = coef(cv_lasso, s = "lambda.min")
+
+# Prediction (classify new data)
+xtest = as.matrix(read.csv("dataT03b2.csv", header = TRUE))
+yProb = predict(cv_lasso, newx = xtest, s = "lambda.min", type = "response")
+yClass = predict(cv_lasso, newx = xtest, s = "lambda.min", type = "class")
+```
+
+```{r}
+# Predicted classification labels
+t(yClass)
+```
+
+## Supplementary Materials: n-fold Cross Validation
+
+```{r}
+rm(list=ls()) 
+library(class)
+
+# Loading dataset
+banktrain <- read.table("German_credit.csv", header=TRUE, sep=",")
+banktrain[,2:5] <- lapply(banktrain[,2:5], scale)
+n=dim(banktrain)[1]
+
+# Randomly split into 10 datasets (10-Fold Example)
+set.seed(2022)
+n_folds=10 # unif sample from 1-10 (assigning the fold-grouping to data)
+folds_j <- sample(rep(1:n_folds, length.out = n))
+table(folds_j) 
+
+accuracy=c(0,0)
+
+for (j in 1:n_folds) {
+	test <- which(folds_j == j) # pull out test values corresponding to assigned fold
+	test.x <-banktrain[test,2:5]
+	test.y <-banktrain[test,1]
+	train.x<-banktrain[-test,2:5] # training data = all other values excluding fold
+	train.y<-banktrain[-test,1]
+	
+	#LS  
+	train <- banktrain[-test,]
+	ls.model <- lm(Creditability~., data=train)
+	ls.pred  <- predict(ls.model,newdata=test.x)>0.5
+	accuracy[2]  = accuracy[2] + sum(ls.pred==test.y)
+}
+
+(accuracy<- accuracy/n)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

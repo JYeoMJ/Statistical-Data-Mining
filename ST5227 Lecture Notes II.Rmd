@@ -1,0 +1,525 @@
+---
+title: "ST5227 Applied Data Mining: Part II"
+author: "Yeo Ming Jie, Jonathan"
+date: "2023-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # clear global directory
+knitr::opts_knit$set(root.dir = '/Users/jyeo_/Desktop/MSc Statistics Coursework/ST5227 Applied Data Mining/Data')
+```
+
+```{r Installing Required Packages, include = FALSE, eval = FALSE}
+install.packages("ISLR2")
+install.packages("tree")
+install.packages("randomForest")
+install.packages("kmed")
+install.packages("gbm")
+```
+
+## Week 7: Tree-Based Methods
+
+* Introducing CART - Classification and Regression Trees
+* Want to apply CART to predict baseball player's salary (in thousands of dollars) based on $x_1=$ Hits and $x_2$ = Years (of experience).
+
+```{r Fitting CART}
+library(ISLR2); library(tree)
+hit = Hitters[c(2,7,19)]; str(hit)
+hit2 = na.omit(hit) # removing rows wth NA values
+hit2[,3] = log(hit2[,3]) # log transform salary
+
+# FITTING CART
+hit.tree = tree(Salary ~ Hits + Years, data = hit2)
+partition.tree(hit.tree) # plot tree partitions
+plot(hit.tree); text(hit.tree, pretty = 0) # visualize splits
+```
+
+```{r Pruning Tree}
+# Cost-Complexity Pruning
+hit.prune = prune.tree(hit.tree, best = 5)
+plot(hit.prune); text(hit.prune,pretty=0)
+```
+
+```{r Cost Complexity CV Algorithm}
+# Apply 10-fold CV to find best tree using first 7 predictor variables
+# Loading Data
+hit3=Hitters[c(1:7,19)]; hit3=na.omit(hit3)
+hit3[,8]=log(hit3[,8])
+
+# Fit CART (Grow Tree -> Prune down to Root)
+hit3.tree=tree(Salary~AtBat+Hits+HmRun+Runs+RBI+Walks+Years, data=hit3)
+hit3.prune=prune.tree(hit3.tree)
+head(hit3.prune,3) # k denotes pruning parameter alpha of each tree in sequence
+
+# Choose 9 alpha values (pruning parameter)
+alpha=c(3.3,3.4,3.5,3.6,3.7,3.75,3.8,9,10)
+cv.error=rep(0,times=9)
+
+# Random permutation of n = 263 cases
+set.seed(5227)
+per=sample(c(1:263),263,replace=FALSE)
+rhit=hit3[per,]
+
+# Divide into Training-Test data for CV (take each fold as test)
+for (k in 1:10){
+  vec=c((26*(k-1)+1):(26*k)) # using fold size of 26
+  test=rhit[vec,] # Training-Test split
+  train=rhit[-vec,]
+  cv.tree=tree(Salary~.,data=train)
+  cv.prune=prune.tree(cv.tree)
+  
+  for(j in 1:9){
+	ptree=prune.tree(cv.tree,k=alpha[j])
+	pred=predict(ptree,test)
+	mse=sum((test$Salary-pred)^2)/26 # computing MSE
+	cv.error[j]=cv.error[j]+mse
+	}
+}
+
+# Cross-Validation Error for each value of alpha 
+round(data.frame(alpha = alpha, cv_error = cv.error/10),4) # (optimal at alpha = 3.80)
+```
+
+```{r}
+prune.tree(hit3.tree,k=3.8) # Observe RSS decreasing with splits
+```
+
+### Bagging (or Bootstrap Aggregation)
+
+```{r Bagging}
+b=1 # vary b to get different tree
+set.seed(b)
+sam=sample(c(1:263),263,replace=TRUE) # sampling with replacement for 263 cases
+hit.sample=hit2[sam,] # Bootstrapped dataset (use to construct tree)
+hit.tree=tree(Salary~Hits+Years,data=hit.sample)
+partition.tree(hit.tree)
+```
+
+### Random Forest
+
+```{r Random Forest}
+##Example 13 Diving into training-test 
+set.seed(5227)
+sam=sample(c(1:506),506,replace=FALSE)
+b1=Boston[sam,]
+train=b1[1:253,]
+test=b1[254:506,]
+
+##Example 14 Test MSE from CART
+boston.CART=tree(medv~.,data=train)
+yhat.CART=predict(boston.CART,test)
+MSE.CART=mean((yhat.CART-test$medv)^2)
+MSE.CART
+```
+
+
+```{r}
+##Example 15 Test MSE from bagging
+library(randomForest)
+set.seed(1)
+boston.bag=randomForest(medv~.,data=train,mtry=12,importance=TRUE)
+boston.bag
+yhat.bag=predict(boston.bag,test)
+MSE.bag=mean((yhat.bag-test$medv)^2)
+MSE.bag
+```
+
+```{r}
+##Example 16 Test MSE from random Forest
+set.seed(1)
+boston.forest=randomForest(medv~.,data=train,mtry=6,importance=TRUE)
+yhat.forest=predict(boston.forest,test)
+MSE.forest=mean((yhat.forest-test$medv)^2)
+MSE.forest
+```
+
+
+
+```{r}
+##Example 17 Importance variable output
+importance(boston.forest)
+```
+
+```{r}
+varImpPlot(boston.forest)
+```
+
+### Boosting
+
+```{r}
+##Example 18 Classification Tree
+library(kmed)
+library(tree)
+heart$class=factor(heart$class)
+heart.tree=tree(class~.,data=heart)
+summary(heart.tree)
+```
+```{r}
+##Example 19 Preliminaries
+set.seed(297)
+per=sample(c(1:297),297,replace=FALSE)
+rheart=heart[per,]
+
+##Example 20 Test error for CART
+error.tree=0
+for(k in 1:10){
+vec=c((29*(k-1)+1):(29*k))
+test=rheart[vec,]
+train=rheart[-vec,]
+cv.tree=tree(class~.,data=train)
+predict.tree=predict(cv.tree,test)
+predictclass.tree=apply(predict.tree,1,which.max)-1
+error.tree=error.tree+sum(test$class!=predictclass.tree)
+}
+```
+
+```{r}
+#Example 21 Output for Example 20
+head(predict.tree)
+head(predictclass.tree)
+head(test$class)
+error.tree/290
+```
+```{r}
+##Example 22 OOB error for bagging
+library(randomForest)
+set.seed(1)
+heart.bag=randomForest(class~.,data=heart,mtry=13)
+heart.bag
+```
+
+```{r}
+##Example 23 OOB error for random forest
+set.seed(1)
+heart.forest=randomForest(class~.,data=heart,mtry=6)
+heart.forest
+```
+
+```{r, message = FALSE, warning = FALSE}
+##Example 24 Preliminaries
+library(gbm)
+rheart$sex=factor(rheart$sex)
+rheart$fbs=factor(rheart$fbs)
+rheart$exang=factor(rheart$exang)
+set.seed(1)
+error.gbm=0
+
+##Example 25 Test error for boosting
+for(k in 1:10){
+vec=c((29*(k-1)+1):(29*k))
+test=rheart[vec,]
+train=rheart[-vec,]
+cv.gbm=gbm(class~.,data=train,n.trees=5000,
+distribution="multinomial",interaction.depth=4)
+predict.gbm=predict(cv.gbm,test)
+predictclass.gbm=apply(predict.gbm,1,which.max)-1
+error.gbm=error.gbm+sum(test$class!=predictclass.gbm)
+}
+error.gbm/290
+```
+
+***
+
+## Week 8: kNN Regression and Classification
+
+Loading Required Packages:
+
+```{r}
+library(kknn)
+```
+
+Loading Boston Datset:
+
+```{r}
+attach(Boston)
+set.seed(5227)
+sam=sample(c(1:506),506,replace=FALSE)
+b1=Boston[sam,]
+train=b1[1:253,]
+test=b1[254:506,]
+```
+
+```{r}
+##Example 1 Applying 3-NN
+boston.3nn=kknn(medv~.,train, test, scale=TRUE, distance=2, k=3, kernel="rectangular")
+mse.3nn=mean((test$medv-boston.3nn$fitted.values)^2)
+mse.3nn
+```
+
+```{r}
+##Example 2 Applying CV to find best k
+mse=rep(0,times=12)
+for(k in 1:12) for(j in 1:6){
+	vec=c(((j-1)*42+1):(j*42))
+	cv.test=train[vec,]
+	cv.train=train[-vec,]
+	boston.knn=kknn(medv~.,cv.train,cv.test,distance=2,k=k,kernel="rectangular")
+	mse[k]=mse[k]+mean((cv.test$medv-boston.knn$fitted.values)^2)/6
+	}
+
+##Example 3 Looking at CV MSE
+mse
+```
+
+```{r}
+##Example 4 Applying weighted kNN
+boston.10t=kknn(medv~.,train,test,distance=2,k=9,kernel="triangular")
+mse.10t=mean((test$medv-boston.10t$fitted.values)^2)
+mse.10t
+```
+
+***
+
+## Week 9: Unsupervised Learning
+
+### Principal Component Analysis (PCA)
+
+```{r}
+##Example 1 Extracting the first 6 data-points
+attach(USArrests)
+small=USArrests[1:6,]
+small
+```
+
+```{r}
+##Example 2 Notations
+X=scale(small)
+X
+x1=X[1,]
+x1
+X2=X[,2]
+X2
+x34=X[3,4]
+x34
+```
+
+```{r}
+##Example 3 Crime rate scores
+v=c(1,1,0,1)/sqrt(3)
+z=X%*%v
+z
+sum(z^2)
+```
+
+```{r}
+##Example 4 PCA on small dataset
+arrests.pca=prcomp(X,scale=FALSE)
+arrests.pca
+```
+
+```{r}
+##Example 5 z-scores of PCA
+arrests.pca$x
+```
+
+```{r}
+##Example 6 computing z-scores using matrix multiplication
+X%*%arrests.pca$rotation[,1]
+```
+
+```{r}
+##Example 7 biplot
+biplot(arrests.pca,scale=0)
+```
+
+```{r}
+##Example 8 PVE and cumulative PVE
+imp=summary(arrests.pca)$importance
+imp
+```
+
+```{r}
+##Example 9 scree plot
+par(mfrow=c(1,2))
+plot(imp[2,],xlab="PCm",ylab="PVE",ylim=c(0,1),main="scree plot",type="b")
+plot(imp[3,],xlab="PCm",ylab="cum PVE",ylim=c(0,1),type="b")
+```
+
+```{r}
+##Example 10 correlation matrix 
+A=t(X)%*%X
+A
+
+##Example 11 eigendecomposition
+A.eig=eigen(t(X)%*%X)
+A.eig
+
+##Example 12 checking the matrix relations
+Q=A.eig$vectors
+Lambda=diag(A.eig$values)
+Q%*%t(Q)
+Q%*%Lambda%*%t(Q)
+sqrt(A.eig$values/5)
+```
+
+### Clustering Methods: K-Means
+
+```{r}
+##Example 13 Applying kmeans
+us.scale=scale(USArrests)
+set.seed(5227)
+us.kmeans=kmeans(us.scale,centers=3,nstart=20)
+us.kmeans
+
+##Example 14 Plotting clusters with features as axes
+par(mfrow=c(1,2))
+plot(us.scale[,1],us.scale[,2],col=us.kmeans$cluster,
+xlab="Murder",ylab="Assault",pch=us.kmeans$cluster)
+plot(us.scale[,3],us.scale[,4],col=us.kmeans$cluster,
+xlab="UrbanPop",ylab="Rape",pch=us.kmeans$cluster)
+
+##Example 15 Plotting clusters with PC1-PC2 axes
+us.pca=prcomp(us.scale,scale=FALSE)
+us.pca
+PC1=us.pca$x[,1]
+PC2=us.pca$x[,2]
+plot(PC1,PC2,col=us.kmeans$cluster,pch=us.kmeans$cluster,
+xlim=c(-3.5,3.5),ylim=c(-3.5,3.5))
+```
+
+### Clustering Methods: Hierarchical clustering (HC)
+
+```{r}
+##Example 16 HC of small dataset
+small.hc=hclust(dist(X),method="single")
+dist(X)
+plot(small.hc)
+
+##Example 17 cutree
+cutree(small.hc,4)
+
+##Example 18 Complete linkage
+small.complete=hclust(dist(X),method="complete")
+plot(small.complete)
+
+##Example 19 Computing correlation distance
+X3=matrix(nrow=3,ncol=7)
+X3[1,]=c(1,1,0,0,0,0,0)
+X3[2,]=c(0,0,1,0,0,0,0)
+X3[3,]=c(1,1,0,1,1,1,1)
+X3.cor=cor(t(X3),method="pearson")
+#Note that we use t(X) instead of X as we want to
+#measure correlation between data-points and not features
+X3.dcor=(1-X3.cor)/2
+X3.dcor
+```
+
+### NCI60 Dataset
+
+```{r}
+##Example 20 NCI60 data
+attach(NCI60)
+nci.data=NCI60$data
+nci.labs=NCI60$labs
+dim(nci.data)
+length(nci.labs)
+head(nci.labs)
+nci.abb=abbreviate(nci.labs)
+table(nci.abb)
+
+##Example 21 HC without PCA
+nci.sd=scale(nci.data)
+nci.hc=hclust(dist(nci.sd),method="complete")
+nci.k4=cutree(nci.hc,k=4)
+table(nci.k4,nci.abb)
+
+##Example 22 Doing PCA on NCI60 data
+nci.pca=prcomp(nci.sd,scale=FALSE)
+imp=summary(nci.pca)$importance
+par(mfrow=c(1,2))
+plot(imp[2,],xlab="PCm",ylab="PVE",ylim=c(0,0.12),main="scree plot",type="b")
+plot(imp[3,],xlab="PCm",ylab="cum PVE",ylim=c(0,1),type="b")
+
+##Example 23 Plotting cancer types on PC
+PC1=nci.pca$x[,1]
+PC2=nci.pca$x[,2]
+PC3=nci.pca$x[,3]
+PC4=nci.pca$x[,4]
+cancer=as.numeric(factor(nci.abb))
+par(mfrow=c(1,2))
+plot(PC1,PC2,col=cancer,pch=cancer)
+plot(PC3,PC4,col=cancer,pch=cancer)
+
+##Example 24
+nci.hc4=hclust(dist(nci.pca$x[,1:4]),method="complete")
+nci.hc4k4=cutree(nci.hc4,k=4)
+table(nci.hc4k4,nci.abb)
+```
+
+## Week 9: Support Vector Machines (SVM)
+
+```{r}
+
+```
+
+
+```{r}
+##Example 1 Creating datasets
+library(e1071)
+X=matrix(nrow=4,ncol=2)
+X1=c(0,0.25,1,0)
+X2=c(0,0.25,0,1)
+y1=c(-1,-1,1,1)
+y2=c(1,-1,1,1)
+sep=data.frame(X1=X1,X2=X2,y=as.factor(y1))
+notsep=data.frame(X1=X1,X2=X2,y=as.factor(y2))
+
+##Example 2 Applying linear SVM on sep
+svm.sep=svm(y~.,data=sep,scale=FALSE,cost=1000,kernel="linear")
+summary(svm.sep)
+
+##Example 3
+plot(svm.sep,data=sep)
+
+##Example 4 Applying linear SVM on notsep
+svm.linear=svm(y~.,data=notsep,scale=FALSE,cost=1000,kernel="linear")
+plot(svm.linear,data=notsep)
+
+##Example 5 Quadratic kernel
+svm.poly=svm(y~.,data=notsep,scale=TRUE,cost=1000,kernel="polynomial",degree=2)
+plot(svm.poly,data=notsep)
+
+##Example 6 Radial basis kernel
+svm.radial=svm(y~.,data=notsep,scale=TRUE,cost=1000,kernel="radial")
+plot(svm.radial,data=notsep)
+
+##Subsampling from original dataset
+##fraud=read.csv("D:/Data/creditcard_csv.csv")
+##positive=fraud[fraud$Class=="'1'",]
+##negative=fraud[fraud$Class=="'0'",]
+##select=sample(c(1:284315),508,replace=FALSE)
+##negative.sample=negative[select,]
+##fraud.sample=rbind(positive,negative.sample)
+##fraud.new=fraud.sample[,-1]
+##write.table(fraud.new,"D:/Data/fraud.txt")
+```
+
+```{r}
+##Example 7 Visualizing the dataset 
+fraud=read.table("fraud.txt")
+head(fraud[,c(1:3,29,30)])
+table(fraud$Class)
+
+##Example 8 Processing the dataset
+fraud$Amount=log(1+fraud$Amount)
+fraud$Class=(fraud$Class=="'1'")-(fraud$Class=="'0'")
+fraud$Class=as.factor(fraud$Class)
+set.seed(5227)
+v=sample(c(1:1000),500,replace=FALSE)
+train=fraud[v,]
+test=fraud[-v,]
+
+##Example 9 Applying SVM on training set
+fraud.svm=svm(Class~.,data=train,scale=FALSE)
+summary(fraud.svm)
+
+##Prediction on test set
+fraud.predict=predict(fraud.svm,test)
+head(fraud.predict)
+table(test$Class,fraud.predict)
+```
+
+
+
